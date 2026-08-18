@@ -9,25 +9,24 @@ export interface InboxItem {
   readonly createdAt: string;
 }
 
-export interface ScratchpadState {
+export interface DumpState {
   readonly inbox: readonly InboxItem[];
-  readonly anchor: string;
   readonly updatedAt: string;
 }
 
-export const EMPTY_STATE: ScratchpadState = {
+export const EMPTY_STATE: DumpState = {
   inbox: [],
-  anchor: "",
   updatedAt: new Date(0).toISOString(),
 };
 
 export const MAX_ITEM_LENGTH = 2_000;
 export const MAX_INBOX_ITEMS = 500;
 
+export const DUMP_REL = ".cursor/rules/scratchpad.mdc";
+export const CURRENT_TASK_REL = ".cursor/rules/current_task.mdc";
+
 const RULES_DIR = path.join(".cursor", "rules");
-const INBOX_REL = path.join(RULES_DIR, "adhd_inbox.mdc");
-const ANCHOR_REL = path.join(RULES_DIR, "adhd_anchor.mdc");
-const EXCLUDE_MARKERS = [INBOX_REL.replace(/\\/g, "/"), ANCHOR_REL.replace(/\\/g, "/")];
+const EXCLUDE_MARKERS = [DUMP_REL, CURRENT_TASK_REL];
 
 export class SyncError extends Error {
   public override readonly name = "SyncError";
@@ -53,7 +52,7 @@ export class SyncEngine {
     const root = this.getRootSafe();
     if (!root) {
       throw new SyncError(
-        "No workspace folder is open. Open a folder to sync the scratchpad for that project.",
+        "No workspace folder is open. Open a folder to dump thoughts for that project.",
       );
     }
     return root;
@@ -63,33 +62,41 @@ export class SyncEngine {
     const root = this.resolveRoot();
     await fs.mkdir(path.join(root, RULES_DIR), { recursive: true });
     await ensureLocalGitExclude(root);
+    await seedFileIfMissing(path.join(root, DUMP_REL), renderDump(EMPTY_STATE));
+    await seedFileIfMissing(path.join(root, CURRENT_TASK_REL), renderCurrentTaskSeed());
   }
 
-  public sync(state: ScratchpadState): Promise<void> {
+  public syncDump(state: DumpState): Promise<void> {
     const snapshot = cloneState(state);
-    const run = (): Promise<void> => this.writeAll(snapshot);
+    const run = (): Promise<void> => this.writeDump(snapshot);
     this.writeChain = this.writeChain.then(run, run);
     return this.writeChain;
   }
 
-  private async writeAll(state: ScratchpadState): Promise<void> {
+  public async readCurrentTask(): Promise<string> {
+    const root = this.getRootSafe();
+    if (!root) {
+      return "";
+    }
+
+    try {
+      const contents = await fs.readFile(path.join(root, CURRENT_TASK_REL), "utf8");
+      return parseCurrentTask(contents);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return "";
+      }
+      throw toError(error);
+    }
+  }
+
+  private async writeDump(state: DumpState): Promise<void> {
     const root = this.resolveRoot();
     await this.ensureProjectStore();
-
-    const results = await Promise.allSettled([
-      atomicWrite(path.join(root, INBOX_REL), renderInbox(state)),
-      atomicWrite(path.join(root, ANCHOR_REL), renderAnchor(state)),
-    ]);
-
-    const failures = results
-      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-      .map((result) => toError(result.reason));
-
-    if (failures.length > 0) {
-      throw new SyncError(
-        `Failed to write ${failures.length} ADHD Scratchpad file(s).`,
-        failures,
-      );
+    try {
+      await atomicWrite(path.join(root, DUMP_REL), renderDump(state));
+    } catch (error) {
+      throw new SyncError("Failed to write the thought dump.", [toError(error)]);
     }
   }
 }
@@ -97,7 +104,7 @@ export class SyncEngine {
 export function createInboxItem(text: string): InboxItem {
   const trimmed = sanitizeUserText(text);
   if (trimmed.length === 0) {
-    throw new SyncError("Inbox thoughts cannot be empty.");
+    throw new SyncError("Dumped thoughts cannot be empty.");
   }
 
   return {
@@ -117,21 +124,20 @@ export function sanitizeUserText(text: string): string {
     .slice(0, MAX_ITEM_LENGTH);
 }
 
-export function cloneState(state: ScratchpadState): ScratchpadState {
+export function cloneState(state: DumpState): DumpState {
   return {
     inbox: state.inbox.map((item) => ({ ...item })),
-    anchor: state.anchor,
     updatedAt: state.updatedAt,
   };
 }
 
-export function isScratchpadState(value: unknown): value is ScratchpadState {
+export function isDumpState(value: unknown): value is DumpState {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  const candidate = value as Partial<ScratchpadState>;
-  if (!Array.isArray(candidate.inbox) || typeof candidate.anchor !== "string") {
+  const candidate = value as Partial<DumpState>;
+  if (!Array.isArray(candidate.inbox)) {
     return false;
   }
 
@@ -146,13 +152,32 @@ export function isScratchpadState(value: unknown): value is ScratchpadState {
   );
 }
 
-function renderInbox(state: ScratchpadState): string {
+export function parseCurrentTask(contents: string): string {
+  const withoutFrontmatter = contents.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const nowMatch = /## Now\s*\r?\n+([\s\S]*?)(?=\r?\n## |\s*$)/.exec(withoutFrontmatter);
+  const raw = (nowMatch?.[1] ?? withoutFrontmatter).trim();
+  const withoutHeading = raw.replace(/^#.*$/m, "").trim();
+  if (
+    withoutHeading.length === 0 ||
+    withoutHeading.startsWith("_No task recorded yet") ||
+    withoutHeading === "_No task recorded yet._"
+  ) {
+    return "";
+  }
+  return sanitizeUserText(withoutHeading.replace(/\n+/g, " "));
+}
+
+function renderDump(state: DumpState): string {
   return withFrontmatter(
-    "ADHD Scratchpad capture inbox — parked thoughts, not the current task.",
+    "Thought dump — parked ideas from the human. Not the current task. Do not chase these unless asked.",
     [
-      "# ADHD Inbox",
+      "# Scratchpad",
       "",
-      "Parked thoughts. The **Focus Anchor** is the active task.",
+      "The human parks stray thoughts here while working. They are **not** the current task.",
+      "",
+      "Do not switch to dump items unless asked.",
+      "",
+      "You own `.cursor/rules/current_task.mdc`. As the actual work changes, rewrite that file so `## Now` matches what you are doing. Keep `alwaysApply: true` in its frontmatter. The human will not maintain it.",
       "",
       renderInboxMarkdown(state.inbox),
       "",
@@ -161,19 +186,18 @@ function renderInbox(state: ScratchpadState): string {
   );
 }
 
-function renderAnchor(state: ScratchpadState): string {
+function renderCurrentTaskSeed(): string {
   return withFrontmatter(
-    "ADHD Scratchpad focus anchor — the single task the developer is actively working on.",
+    "Current task for this project. The agent owns this file — update it as the work changes.",
     [
-      "# ADHD Focus Anchor",
+      "# Current task",
       "",
-      "Prioritize this task. Do not switch to inbox items unless asked.",
+      "You own this file. Rewrite `## Now` whenever the work in this session changes. Do not wait for the human. Do not replace it with scratchpad dump items unless they asked you to.",
       "",
-      "## Current Anchor",
+      "## Now",
       "",
-      renderAnchorBody(state.anchor),
+      "_No task recorded yet. Set this on the first real piece of work._",
       "",
-      renderFooter(state.updatedAt),
     ],
   );
 }
@@ -186,7 +210,7 @@ function withFrontmatter(description: string, body: string[]): string {
 
 function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
   if (inbox.length === 0) {
-    return "_Inbox is empty._";
+    return "_Nothing dumped yet._";
   }
 
   const open = inbox.filter((item) => !item.done);
@@ -210,13 +234,19 @@ function toCheckboxLine(item: InboxItem): string {
   return `- [${item.done ? "x" : " "}] ${item.text.replace(/\n+/g, " ").trim()}`;
 }
 
-function renderAnchorBody(anchor: string): string {
-  const trimmed = sanitizeUserText(anchor);
-  return trimmed.length === 0 ? "_No active anchor set._" : trimmed;
+function renderFooter(updatedAt: string): string {
+  return `_Last synced: ${updatedAt} by scratchpad_`;
 }
 
-function renderFooter(updatedAt: string): string {
-  return `_Last synced: ${updatedAt} by adhd-scratchpad_`;
+async function seedFileIfMissing(filePath: string, contents: string): Promise<void> {
+  try {
+    await fs.access(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw toError(error);
+    }
+    await atomicWrite(filePath, contents);
+  }
 }
 
 async function ensureLocalGitExclude(root: string): Promise<void> {
@@ -253,8 +283,8 @@ async function ensureLocalGitExclude(root: string): Promise<void> {
   if (next.length > 0 && !next.endsWith("\n")) {
     next += "\n";
   }
-  if (!next.includes("# adhd-scratchpad")) {
-    next += "\n# adhd-scratchpad (local only, not committed)\n";
+  if (!next.includes("# scratchpad")) {
+    next += "\n# scratchpad (local only, not committed)\n";
   }
   next += `${missing.join("\n")}\n`;
   await atomicWrite(excludePath, next);

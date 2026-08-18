@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
-import { AdhdWebviewProvider } from "./adhdWebviewProvider";
 import { SyncEngine } from "./syncEngine";
+import { ScratchpadWebviewProvider } from "./scratchpadWebviewProvider";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const engine = new SyncEngine(() => resolveWorkspaceRoot());
-  const provider = new AdhdWebviewProvider(
+  const provider = new ScratchpadWebviewProvider(
     context.extensionUri,
     engine,
     context.workspaceState,
@@ -19,7 +19,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(AdhdWebviewProvider.viewType, provider, {
+    provider,
+    vscode.window.registerWebviewViewProvider(ScratchpadWebviewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -28,13 +29,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await provider.resync();
       })();
     }),
-    vscode.commands.registerCommand("adhdScratchpad.focusSidebar", () => {
+    vscode.commands.registerCommand("scratchpad.focusSidebar", () => {
       provider.reveal();
     }),
-    vscode.commands.registerCommand("adhdScratchpad.quickDump", async () => {
+    vscode.commands.registerCommand("scratchpad.quickDump", async () => {
       const text = await vscode.window.showInputBox({
-        title: "ADHD Scratchpad",
-        prompt: "Park a thought. It will not become the focus anchor.",
+        title: "Scratchpad",
+        prompt: "Park a thought. It will not become the current task.",
         placeHolder: "that other idea I should not chase right now",
         ignoreFocusOut: true,
       });
@@ -42,28 +43,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await provider.dumpThought(text);
       }
     }),
-    vscode.commands.registerCommand("adhdScratchpad.setAnchor", async () => {
-      const text = await vscode.window.showInputBox({
-        title: "Set Focus Anchor",
-        prompt: "What are you actually trying to finish right now?",
-        ignoreFocusOut: true,
-      });
-      if (text !== undefined) {
-        await provider.setAnchor(text);
-      }
-    }),
-    vscode.commands.registerCommand("adhdScratchpad.clearInbox", async () => {
+    vscode.commands.registerCommand("scratchpad.clearDump", async () => {
       const choice = await vscode.window.showWarningMessage(
-        "Clear every parked thought in the ADHD inbox?",
+        "Clear every parked thought in the dump?",
         { modal: true },
-        "Clear inbox",
+        "Clear dump",
       );
-      if (choice === "Clear inbox") {
-        await provider.clearInbox();
+      if (choice === "Clear dump") {
+        await provider.clearDump();
       }
-    }),
-    vscode.commands.registerCommand("adhdScratchpad.clearAnchor", async () => {
-      await provider.clearAnchor();
     }),
   );
 }
@@ -102,5 +90,5 @@ function resolveWorkspaceRoot(): string | undefined {
 
 function showActivationError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
-  void vscode.window.showErrorMessage(`ADHD Scratchpad: ${message}`);
+  void vscode.window.showErrorMessage(`Scratchpad: ${message}`);
 }

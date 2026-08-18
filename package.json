@@ -1,7 +1,7 @@
 {
-  "name": "adhd-scratchpad",
-  "displayName": "ADHD Scratchpad",
-  "description": "Tiny second brain for Cursor: dump stray thoughts, pin the current task. Per-project rules the agent reads and git ignores.",
+  "name": "scratchpad",
+  "displayName": "Scratchpad",
+  "description": "Dump stray thoughts as you work in Cursor. You maintain the dump; the agent keeps the current task. Per-project rules git ignores.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
@@ -26,12 +26,11 @@
   ],
   "keywords": [
     "scratchpad",
-    "second-brain",
     "inbox",
-    "focus",
     "cursor",
     "rules",
-    "capture"
+    "capture",
+    "focus"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -41,58 +40,48 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "adhdScratchpad",
+          "id": "scratchpad",
           "title": "Scratchpad",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "adhdScratchpad": [
+      "scratchpad": [
         {
           "type": "webview",
-          "id": "adhdScratchpad.sidebar",
-          "name": "Capture",
-          "contextualTitle": "ADHD Scratchpad"
+          "id": "scratchpad.sidebar",
+          "name": "Scratchpad",
+          "contextualTitle": "Scratchpad"
         }
       ]
     },
     "commands": [
       {
-        "command": "adhdScratchpad.quickDump",
+        "command": "scratchpad.quickDump",
         "title": "Quick Dump Thought",
-        "category": "ADHD Scratchpad"
+        "category": "Scratchpad"
       },
       {
-        "command": "adhdScratchpad.setAnchor",
-        "title": "Set Focus Anchor",
-        "category": "ADHD Scratchpad"
+        "command": "scratchpad.clearDump",
+        "title": "Clear Dump",
+        "category": "Scratchpad"
       },
       {
-        "command": "adhdScratchpad.clearInbox",
-        "title": "Clear Inbox",
-        "category": "ADHD Scratchpad"
-      },
-      {
-        "command": "adhdScratchpad.clearAnchor",
-        "title": "Clear Focus Anchor",
-        "category": "ADHD Scratchpad"
-      },
-      {
-        "command": "adhdScratchpad.focusSidebar",
+        "command": "scratchpad.focusSidebar",
         "title": "Focus Sidebar",
-        "category": "ADHD Scratchpad"
+        "category": "Scratchpad"
       }
     ]
   },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "ADHD Scratchpad writes markdown rule files into the workspace."
+      "description": "Scratchpad writes markdown rule files into the workspace."
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "ADHD Scratchpad requires a local filesystem to sync agent rule files."
+      "description": "Scratchpad requires a local filesystem to sync agent rule files."
     }
   },
   "scripts": {
