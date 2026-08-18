@@ -4,6 +4,3 @@ out/
 .vscode-test/
 *.log
 *.tmp
-
-.cursor/rules/adhd_inbox.mdc
-.cursor/rules/adhd_anchor.mdc

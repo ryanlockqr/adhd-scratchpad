@@ -1,7 +1,7 @@
 {
   "name": "adhd-scratchpad",
   "displayName": "ADHD Scratchpad",
-  "description": "Frictionless capture inbox and focus anchor for Cursor. Parks distracting thoughts and pins the current task as always-on Cursor rules.",
+  "description": "Frictionless capture inbox and focus anchor for Cursor. Parks distracting thoughts and pins the current task as per-project Cursor rules that stay off git.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
@@ -12,12 +12,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryanlockqr/context-scratchpad.git"
+    "url": "https://github.com/ryanlockqr/adhd-scratchpad.git"
   },
   "bugs": {
-    "url": "https://github.com/ryanlockqr/context-scratchpad/issues"
+    "url": "https://github.com/ryanlockqr/adhd-scratchpad/issues"
   },
-  "homepage": "https://github.com/ryanlockqr/context-scratchpad#readme",
+  "homepage": "https://github.com/ryanlockqr/adhd-scratchpad#readme",
   "engines": {
     "vscode": "^1.85.0"
   },

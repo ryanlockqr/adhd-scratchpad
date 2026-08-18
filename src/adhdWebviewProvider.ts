@@ -434,7 +434,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 <body>
   <div class="stack">
     <div id="workspace-banner" class="banner" hidden>
-      Open a folder to sync your scratchpad into Cursor rules.
+      Open a project folder. The scratchpad is per-repo and stays off git.
     </div>
 
     <section class="card dump">

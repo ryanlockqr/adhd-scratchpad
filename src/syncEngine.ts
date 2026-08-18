@@ -24,7 +24,10 @@ export const EMPTY_STATE: ScratchpadState = {
 export const MAX_ITEM_LENGTH = 2_000;
 export const MAX_INBOX_ITEMS = 500;
 
-const CURSOR_RULES_DIR = path.join(".cursor", "rules");
+const RULES_DIR = path.join(".cursor", "rules");
+const INBOX_REL = path.join(RULES_DIR, "adhd_inbox.mdc");
+const ANCHOR_REL = path.join(RULES_DIR, "adhd_anchor.mdc");
+const EXCLUDE_MARKERS = [INBOX_REL.replace(/\\/g, "/"), ANCHOR_REL.replace(/\\/g, "/")];
 
 export class SyncError extends Error {
   public override readonly name = "SyncError";
@@ -40,24 +43,26 @@ export class SyncError extends Error {
 export class SyncEngine {
   private writeChain: Promise<void> = Promise.resolve();
 
-  public constructor(private readonly getRoot: () => string | undefined) {}
+  public constructor(private readonly getWorkspace: () => string | undefined) {}
 
   public getRootSafe(): string | undefined {
-    return this.getRoot();
+    return this.getWorkspace();
   }
 
   public resolveRoot(): string {
     const root = this.getRootSafe();
     if (!root) {
       throw new SyncError(
-        "No workspace folder is open. Open a folder to sync ADHD Scratchpad files.",
+        "No workspace folder is open. Open a folder to sync the scratchpad for that project.",
       );
     }
     return root;
   }
 
-  public async ensureRuleDirectories(): Promise<void> {
-    await fs.mkdir(path.join(this.resolveRoot(), CURSOR_RULES_DIR), { recursive: true });
+  public async ensureProjectStore(): Promise<void> {
+    const root = this.resolveRoot();
+    await fs.mkdir(path.join(root, RULES_DIR), { recursive: true });
+    await ensureLocalGitExclude(root);
   }
 
   public sync(state: ScratchpadState): Promise<void> {
@@ -69,11 +74,11 @@ export class SyncEngine {
 
   private async writeAll(state: ScratchpadState): Promise<void> {
     const root = this.resolveRoot();
-    await this.ensureRuleDirectories();
+    await this.ensureProjectStore();
 
     const results = await Promise.allSettled([
-      atomicWrite(path.join(root, CURSOR_RULES_DIR, "adhd_inbox.mdc"), renderInbox(state)),
-      atomicWrite(path.join(root, CURSOR_RULES_DIR, "adhd_anchor.mdc"), renderAnchor(state)),
+      atomicWrite(path.join(root, INBOX_REL), renderInbox(state)),
+      atomicWrite(path.join(root, ANCHOR_REL), renderAnchor(state)),
     ]);
 
     const failures = results
@@ -212,6 +217,68 @@ function renderAnchorBody(anchor: string): string {
 
 function renderFooter(updatedAt: string): string {
   return `_Last synced: ${updatedAt} by adhd-scratchpad_`;
+}
+
+async function ensureLocalGitExclude(root: string): Promise<void> {
+  const gitDir = await resolveGitDir(root);
+  if (!gitDir) {
+    return;
+  }
+
+  const excludePath = path.join(gitDir, "info", "exclude");
+  await fs.mkdir(path.dirname(excludePath), { recursive: true });
+
+  let existing = "";
+  try {
+    existing = await fs.readFile(excludePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw toError(error);
+    }
+  }
+
+  const present = new Set(
+    existing
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#")),
+  );
+
+  const missing = EXCLUDE_MARKERS.filter((line) => !present.has(line));
+  if (missing.length === 0) {
+    return;
+  }
+
+  let next = existing;
+  if (next.length > 0 && !next.endsWith("\n")) {
+    next += "\n";
+  }
+  if (!next.includes("# adhd-scratchpad")) {
+    next += "\n# adhd-scratchpad (local only, not committed)\n";
+  }
+  next += `${missing.join("\n")}\n`;
+  await atomicWrite(excludePath, next);
+}
+
+async function resolveGitDir(root: string): Promise<string | undefined> {
+  const gitPath = path.join(root, ".git");
+  try {
+    const stat = await fs.stat(gitPath);
+    if (stat.isDirectory()) {
+      return gitPath;
+    }
+    if (!stat.isFile()) {
+      return undefined;
+    }
+    const text = await fs.readFile(gitPath, "utf8");
+    const match = /^gitdir:\s*(.+)$/m.exec(text);
+    if (!match?.[1]) {
+      return undefined;
+    }
+    return path.resolve(root, match[1].trim());
+  } catch {
+    return undefined;
+  }
 }
 
 async function atomicWrite(filePath: string, contents: string): Promise<void> {
