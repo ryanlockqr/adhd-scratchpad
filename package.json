@@ -1,7 +1,7 @@
 {
   "name": "scratchpad",
   "displayName": "Scratchpad",
-  "description": "Dump stray thoughts as you work in Cursor. You maintain the dump; the agent keeps the current task. Per-project rules git ignores.",
+  "description": "Dump stray thoughts as you work in Cursor. Per-project rules git ignores.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
@@ -29,8 +29,7 @@
     "inbox",
     "cursor",
     "rules",
-    "capture",
-    "focus"
+    "capture"
   ],
   "activationEvents": [
     "onStartupFinished"
