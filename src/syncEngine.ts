@@ -15,13 +15,6 @@ export interface ScratchpadState {
   readonly updatedAt: string;
 }
 
-export interface SyncTargets {
-  readonly writeCursorRules: boolean;
-  readonly writeWindsurfRules: boolean;
-  readonly writeAgentsMd: boolean;
-  readonly writeClaudeMd: boolean;
-}
-
 export const EMPTY_STATE: ScratchpadState = {
   inbox: [],
   anchor: "",
@@ -32,12 +25,6 @@ export const MAX_ITEM_LENGTH = 2_000;
 export const MAX_INBOX_ITEMS = 500;
 
 const CURSOR_RULES_DIR = path.join(".cursor", "rules");
-const WINDSURF_RULES_DIR = path.join(".windsurf", "rules");
-
-const SECTION_START = "<!-- ADHD-SCRATCHPAD:START -->";
-const SECTION_END = "<!-- ADHD-SCRATCHPAD:END -->";
-
-const CHECKBOX_LINE = /^- \[([ xX])\] (.*)$/;
 
 export class SyncError extends Error {
   public override readonly name = "SyncError";
@@ -50,10 +37,6 @@ export class SyncError extends Error {
   }
 }
 
-/**
- * Formats inbox + anchor state and writes it to every supported agent
- * convention in the workspace root. No database — filesystem only.
- */
 export class SyncEngine {
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -73,119 +56,26 @@ export class SyncEngine {
     return root;
   }
 
-  /**
-   * Creates `.cursor/rules/` and `.windsurf/rules/` when missing.
-   * Safe to call on every activation.
-   */
   public async ensureRuleDirectories(): Promise<void> {
-    const root = this.resolveRoot();
-    await Promise.all([
-      fs.mkdir(path.join(root, CURSOR_RULES_DIR), { recursive: true }),
-      fs.mkdir(path.join(root, WINDSURF_RULES_DIR), { recursive: true }),
-    ]);
+    await fs.mkdir(path.join(this.resolveRoot(), CURSOR_RULES_DIR), { recursive: true });
   }
 
-  /**
-   * Serializes writes so rapid inbox dumps cannot interleave file updates.
-   */
-  public sync(state: ScratchpadState, targets: SyncTargets): Promise<void> {
+  public sync(state: ScratchpadState): Promise<void> {
     const snapshot = cloneState(state);
-    const run = (): Promise<void> => this.writeAll(snapshot, targets);
+    const run = (): Promise<void> => this.writeAll(snapshot);
     this.writeChain = this.writeChain.then(run, run);
     return this.writeChain;
   }
 
-  /**
-   * Best-effort restore when workspaceState is empty but generated files exist.
-   */
-  public async tryHydrateFromDisk(): Promise<ScratchpadState | undefined> {
-    let root: string;
-    try {
-      root = this.resolveRoot();
-    } catch {
-      return undefined;
-    }
-
-    const inboxPath = path.join(root, CURSOR_RULES_DIR, "adhd_inbox.mdc");
-    const anchorPath = path.join(root, CURSOR_RULES_DIR, "adhd_anchor.mdc");
-
-    const [inboxRaw, anchorRaw] = await Promise.all([
-      readIfExists(inboxPath),
-      readIfExists(anchorPath),
-    ]);
-
-    if (inboxRaw === undefined && anchorRaw === undefined) {
-      return undefined;
-    }
-
-    const inbox = inboxRaw ? parseInboxCheckboxes(inboxRaw) : [];
-    const anchor = anchorRaw ? parseAnchorBody(anchorRaw) : "";
-
-    if (inbox.length === 0 && anchor.length === 0) {
-      return undefined;
-    }
-
-    return {
-      inbox,
-      anchor,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  private async writeAll(
-    state: ScratchpadState,
-    targets: SyncTargets,
-  ): Promise<void> {
+  private async writeAll(state: ScratchpadState): Promise<void> {
     const root = this.resolveRoot();
     await this.ensureRuleDirectories();
 
-    const jobs: Array<Promise<void>> = [];
+    const results = await Promise.allSettled([
+      atomicWrite(path.join(root, CURSOR_RULES_DIR, "adhd_inbox.mdc"), renderInbox(state)),
+      atomicWrite(path.join(root, CURSOR_RULES_DIR, "adhd_anchor.mdc"), renderAnchor(state)),
+    ]);
 
-    if (targets.writeCursorRules) {
-      jobs.push(
-        atomicWrite(
-          path.join(root, CURSOR_RULES_DIR, "adhd_inbox.mdc"),
-          renderCursorInbox(state),
-        ),
-        atomicWrite(
-          path.join(root, CURSOR_RULES_DIR, "adhd_anchor.mdc"),
-          renderCursorAnchor(state),
-        ),
-      );
-    }
-
-    if (targets.writeWindsurfRules) {
-      jobs.push(
-        atomicWrite(
-          path.join(root, WINDSURF_RULES_DIR, "adhd_inbox.md"),
-          renderWindsurfInbox(state),
-        ),
-        atomicWrite(
-          path.join(root, WINDSURF_RULES_DIR, "adhd_anchor.md"),
-          renderWindsurfAnchor(state),
-        ),
-      );
-    }
-
-    if (targets.writeAgentsMd) {
-      jobs.push(
-        upsertMarkedSection(
-          path.join(root, "AGENTS.md"),
-          renderCombinedSection(state, "AGENTS.md"),
-        ),
-      );
-    }
-
-    if (targets.writeClaudeMd) {
-      jobs.push(
-        upsertMarkedSection(
-          path.join(root, "CLAUDE.md"),
-          renderCombinedSection(state, "CLAUDE.md"),
-        ),
-      );
-    }
-
-    const results = await Promise.allSettled(jobs);
     const failures = results
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
       .map((result) => toError(result.reason));
@@ -218,8 +108,6 @@ export function sanitizeUserText(text: string): string {
     .replace(/\u0000/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(SECTION_START, "")
-    .replace(SECTION_END, "")
     .trim()
     .slice(0, MAX_ITEM_LENGTH);
 }
@@ -253,107 +141,42 @@ export function isScratchpadState(value: unknown): value is ScratchpadState {
   );
 }
 
-function renderCursorInbox(state: ScratchpadState): string {
-  return [
-    "---",
-    "description: ADHD Scratchpad capture inbox — parked thoughts, not the current task. Do not context-switch to these unless the developer asks.",
-    "alwaysApply: true",
-    "---",
-    "",
-    "# ADHD Inbox",
-    "",
-    "Parked thoughts captured from the ADHD Scratchpad sidebar.",
-    "Treat these as a holding area. The **Focus Anchor** is the active task.",
-    "",
-    renderInboxMarkdown(state.inbox),
-    "",
-    renderFooter(state.updatedAt),
-    "",
-  ].join("\n");
+function renderInbox(state: ScratchpadState): string {
+  return withFrontmatter(
+    "ADHD Scratchpad capture inbox — parked thoughts, not the current task.",
+    [
+      "# ADHD Inbox",
+      "",
+      "Parked thoughts. The **Focus Anchor** is the active task.",
+      "",
+      renderInboxMarkdown(state.inbox),
+      "",
+      renderFooter(state.updatedAt),
+    ],
+  );
 }
 
-function renderCursorAnchor(state: ScratchpadState): string {
-  return [
-    "---",
-    "description: ADHD Scratchpad focus anchor — the single task the developer is actively working on. Prioritize this over inbox items.",
-    "alwaysApply: true",
-    "---",
-    "",
-    "# ADHD Focus Anchor",
-    "",
-    "The developer is currently focused on **this** task.",
-    "Do not switch to inbox items or invent a new goal unless they ask.",
-    "",
-    "## Current Anchor",
-    "",
-    "<!-- anchor:start -->",
-    renderAnchorBody(state.anchor),
-    "<!-- anchor:end -->",
-    "",
-    renderFooter(state.updatedAt),
-    "",
-  ].join("\n");
+function renderAnchor(state: ScratchpadState): string {
+  return withFrontmatter(
+    "ADHD Scratchpad focus anchor — the single task the developer is actively working on.",
+    [
+      "# ADHD Focus Anchor",
+      "",
+      "Prioritize this task. Do not switch to inbox items unless asked.",
+      "",
+      "## Current Anchor",
+      "",
+      renderAnchorBody(state.anchor),
+      "",
+      renderFooter(state.updatedAt),
+    ],
+  );
 }
 
-function renderWindsurfInbox(state: ScratchpadState): string {
-  return [
-    "---",
-    "trigger: always_on",
-    "description: ADHD Scratchpad capture inbox — parked thoughts, not the current task.",
-    "---",
-    "",
-    "# ADHD Inbox",
-    "",
-    "Parked thoughts captured from the ADHD Scratchpad sidebar.",
-    "Treat these as a holding area. The **Focus Anchor** is the active task.",
-    "",
-    renderInboxMarkdown(state.inbox),
-    "",
-    renderFooter(state.updatedAt),
-    "",
-  ].join("\n");
-}
-
-function renderWindsurfAnchor(state: ScratchpadState): string {
-  return [
-    "---",
-    "trigger: always_on",
-    "description: ADHD Scratchpad focus anchor — the single task the developer is actively working on.",
-    "---",
-    "",
-    "# ADHD Focus Anchor",
-    "",
-    "The developer is currently focused on **this** task.",
-    "Do not switch to inbox items or invent a new goal unless they ask.",
-    "",
-    "## Current Anchor",
-    "",
-    "<!-- anchor:start -->",
-    renderAnchorBody(state.anchor),
-    "<!-- anchor:end -->",
-    "",
-    renderFooter(state.updatedAt),
-    "",
-  ].join("\n");
-}
-
-function renderCombinedSection(state: ScratchpadState, filename: string): string {
-  return [
-    `# ADHD Scratchpad Context`,
-    ``,
-    `Auto-generated by the ADHD Scratchpad extension for \`${filename}\`.`,
-    `Do not edit this section by hand — use the sidebar.`,
-    ``,
-    `## Focus Anchor`,
-    ``,
-    renderAnchorBody(state.anchor),
-    ``,
-    `## Inbox`,
-    ``,
-    renderInboxMarkdown(state.inbox),
-    ``,
-    renderFooter(state.updatedAt),
-  ].join("\n");
+function withFrontmatter(description: string, body: string[]): string {
+  return ["---", `description: ${description}`, "alwaysApply: true", "---", "", ...body, ""].join(
+    "\n",
+  );
 }
 
 function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
@@ -368,7 +191,6 @@ function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
   if (open.length > 0) {
     blocks.push("### Open", "", ...open.map(toCheckboxLine));
   }
-
   if (done.length > 0) {
     if (blocks.length > 0) {
       blocks.push("");
@@ -380,95 +202,21 @@ function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
 }
 
 function toCheckboxLine(item: InboxItem): string {
-  const mark = item.done ? "x" : " ";
-  return `- [${mark}] ${flattenForMarkdown(item.text)}`;
+  return `- [${item.done ? "x" : " "}] ${item.text.replace(/\n+/g, " ").trim()}`;
 }
 
 function renderAnchorBody(anchor: string): string {
   const trimmed = sanitizeUserText(anchor);
-  if (trimmed.length === 0) {
-    return "_No active anchor set._";
-  }
-  return trimmed;
+  return trimmed.length === 0 ? "_No active anchor set._" : trimmed;
 }
 
 function renderFooter(updatedAt: string): string {
   return `_Last synced: ${updatedAt} by adhd-scratchpad_`;
 }
 
-function flattenForMarkdown(text: string): string {
-  return text.replace(/\n+/g, " ").trim();
-}
-
-function parseInboxCheckboxes(raw: string): InboxItem[] {
-  const items: InboxItem[] = [];
-  for (const line of raw.split("\n")) {
-    const match = CHECKBOX_LINE.exec(line);
-    if (!match) {
-      continue;
-    }
-    const mark = match[1] ?? " ";
-    const text = sanitizeUserText(match[2] ?? "");
-    if (text.length === 0) {
-      continue;
-    }
-    items.push({
-      id: createId(),
-      text,
-      done: mark !== " ",
-      createdAt: new Date().toISOString(),
-    });
-    if (items.length >= MAX_INBOX_ITEMS) {
-      break;
-    }
-  }
-  return items;
-}
-
-function parseAnchorBody(raw: string): string {
-  const start = raw.indexOf("<!-- anchor:start -->");
-  const end = raw.indexOf("<!-- anchor:end -->");
-  if (start === -1 || end === -1 || end <= start) {
-    return "";
-  }
-
-  const inner = raw.slice(start + "<!-- anchor:start -->".length, end).trim();
-  if (inner === "_No active anchor set._") {
-    return "";
-  }
-  return sanitizeUserText(inner);
-}
-
-async function upsertMarkedSection(
-  filePath: string,
-  sectionBody: string,
-): Promise<void> {
-  const block = `${SECTION_START}\n${sectionBody.trim()}\n${SECTION_END}\n`;
-  const existing = await readIfExists(filePath);
-
-  if (existing === undefined || existing.trim().length === 0) {
-    await atomicWrite(filePath, block);
-    return;
-  }
-
-  const startIdx = existing.indexOf(SECTION_START);
-  const endIdx = existing.indexOf(SECTION_END);
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const after = existing.slice(endIdx + SECTION_END.length).replace(/^\n/, "");
-    const next = existing.slice(0, startIdx) + block + after;
-    await atomicWrite(filePath, next);
-    return;
-  }
-
-  const prefix = existing.replace(/\s*$/, "\n\n");
-  await atomicWrite(filePath, prefix + block);
-}
-
 async function atomicWrite(filePath: string, contents: string): Promise<void> {
   const directory = path.dirname(filePath);
   await fs.mkdir(directory, { recursive: true });
-
   const tempPath = path.join(
     directory,
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${Math.random()
@@ -482,7 +230,8 @@ async function atomicWrite(filePath: string, contents: string): Promise<void> {
       await fs.rename(tempPath, filePath);
     } catch (renameError) {
       const err = toError(renameError);
-      if (isWindowsRenameCollision(err)) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (os.platform() === "win32" && (code === "EPERM" || code === "EEXIST")) {
         await fs.copyFile(tempPath, filePath);
         await fs.unlink(tempPath);
         return;
@@ -495,30 +244,10 @@ async function atomicWrite(filePath: string, contents: string): Promise<void> {
   }
 }
 
-function isWindowsRenameCollision(error: Error): boolean {
-  const code = (error as NodeJS.ErrnoException).code;
-  return os.platform() === "win32" && (code === "EPERM" || code === "EEXIST");
-}
-
-async function readIfExists(filePath: string): Promise<string | undefined> {
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return undefined;
-    }
-    throw toError(error);
-  }
-}
-
 function createId(): string {
   return `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function toError(reason: unknown): Error {
-  if (reason instanceof Error) {
-    return reason;
-  }
-  return new Error(String(reason));
+  return reason instanceof Error ? reason : new Error(String(reason));
 }

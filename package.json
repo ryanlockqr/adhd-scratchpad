@@ -1,12 +1,13 @@
 {
   "name": "adhd-scratchpad",
   "displayName": "ADHD Scratchpad",
-  "description": "Frictionless capture inbox and focus anchor for neurodivergent developers. Syncs thoughts to Cursor, Windsurf, Zed, Claude Code, and Aider in real time.",
+  "description": "Frictionless capture inbox and focus anchor for Cursor. Parks distracting thoughts and pins the current task as always-on Cursor rules.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
+  "icon": "media/icon.png",
   "galleryBanner": {
-    "color": "#1e1e1e",
+    "color": "#1b1f20",
     "theme": "dark"
   },
   "repository": {
@@ -30,12 +31,7 @@
     "inbox",
     "focus",
     "cursor",
-    "windsurf",
-    "claude",
-    "aider",
-    "zed",
-    "agents.md",
-    "context"
+    "rules"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -87,32 +83,7 @@
         "title": "Focus Sidebar",
         "category": "ADHD Scratchpad"
       }
-    ],
-    "configuration": {
-      "title": "ADHD Scratchpad",
-      "properties": {
-        "adhdScratchpad.writeCursorRules": {
-          "type": "boolean",
-          "default": true,
-          "description": "Write always-on Cursor rules to .cursor/rules/adhd_inbox.mdc and adhd_anchor.mdc."
-        },
-        "adhdScratchpad.writeWindsurfRules": {
-          "type": "boolean",
-          "default": true,
-          "description": "Write always-on Windsurf rules to .windsurf/rules/."
-        },
-        "adhdScratchpad.writeAgentsMd": {
-          "type": "boolean",
-          "default": true,
-          "description": "Upsert an ADHD Scratchpad section into AGENTS.md (Zed, Aider, Codex, and other agents)."
-        },
-        "adhdScratchpad.writeClaudeMd": {
-          "type": "boolean",
-          "default": true,
-          "description": "Upsert an ADHD Scratchpad section into CLAUDE.md (Claude Code and Aider)."
-        }
-      }
-    }
+    ]
   },
   "capabilities": {
     "untrustedWorkspaces": {
@@ -128,11 +99,15 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -p ./ -watch",
-    "lint": "tsc --noEmit -p ./"
+    "lint": "tsc --noEmit -p ./",
+    "icon": "python3 scripts/generate-icon.py",
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.6.0",
+    "ovsx": "^0.10.5",
     "typescript": "^5.7.2"
   }
 }

@@ -3,12 +3,7 @@ out/
 *.vsix
 .vscode-test/
 *.log
+*.tmp
 
-# Runtime scratchpad files created while developing this extension
 .cursor/rules/adhd_inbox.mdc
 .cursor/rules/adhd_anchor.mdc
-.windsurf/rules/adhd_inbox.md
-.windsurf/rules/adhd_anchor.md
-/AGENTS.md
-/CLAUDE.md
-*.tmp
