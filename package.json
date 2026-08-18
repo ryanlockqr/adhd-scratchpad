@@ -1,7 +1,7 @@
 {
   "name": "adhd-scratchpad",
   "displayName": "ADHD Scratchpad",
-  "description": "Frictionless capture inbox and focus anchor for Cursor. Parks distracting thoughts and pins the current task as per-project Cursor rules that stay off git.",
+  "description": "Tiny second brain for Cursor: dump stray thoughts, pin the current task. Per-project rules the agent reads and git ignores.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
@@ -25,13 +25,13 @@
     "Other"
   ],
   "keywords": [
-    "adhd",
-    "neurodivergent",
     "scratchpad",
+    "second-brain",
     "inbox",
     "focus",
     "cursor",
-    "rules"
+    "rules",
+    "capture"
   ],
   "activationEvents": [
     "onStartupFinished"
