@@ -22,11 +22,8 @@ export const EMPTY_STATE: DumpState = {
 export const MAX_ITEM_LENGTH = 2_000;
 export const MAX_INBOX_ITEMS = 500;
 
-export const DUMP_REL = ".cursor/rules/scratchpad.mdc";
-export const CURRENT_TASK_REL = ".cursor/rules/current_task.mdc";
-
+const DUMP_REL = ".cursor/rules/scratchpad.mdc";
 const RULES_DIR = path.join(".cursor", "rules");
-const EXCLUDE_MARKERS = [DUMP_REL, CURRENT_TASK_REL];
 
 export class SyncError extends Error {
   public override readonly name = "SyncError";
@@ -63,7 +60,6 @@ export class SyncEngine {
     await fs.mkdir(path.join(root, RULES_DIR), { recursive: true });
     await ensureLocalGitExclude(root);
     await seedFileIfMissing(path.join(root, DUMP_REL), renderDump(EMPTY_STATE));
-    await seedFileIfMissing(path.join(root, CURRENT_TASK_REL), renderCurrentTaskSeed());
   }
 
   public syncDump(state: DumpState): Promise<void> {
@@ -71,23 +67,6 @@ export class SyncEngine {
     const run = (): Promise<void> => this.writeDump(snapshot);
     this.writeChain = this.writeChain.then(run, run);
     return this.writeChain;
-  }
-
-  public async readCurrentTask(): Promise<string> {
-    const root = this.getRootSafe();
-    if (!root) {
-      return "";
-    }
-
-    try {
-      const contents = await fs.readFile(path.join(root, CURRENT_TASK_REL), "utf8");
-      return parseCurrentTask(contents);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return "";
-      }
-      throw toError(error);
-    }
   }
 
   private async writeDump(state: DumpState): Promise<void> {
@@ -152,52 +131,19 @@ export function isDumpState(value: unknown): value is DumpState {
   );
 }
 
-export function parseCurrentTask(contents: string): string {
-  const withoutFrontmatter = contents.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-  const nowMatch = /## Now\s*\r?\n+([\s\S]*?)(?=\r?\n## |\s*$)/.exec(withoutFrontmatter);
-  const raw = (nowMatch?.[1] ?? withoutFrontmatter).trim();
-  const withoutHeading = raw.replace(/^#.*$/m, "").trim();
-  if (
-    withoutHeading.length === 0 ||
-    withoutHeading.startsWith("_No task recorded yet") ||
-    withoutHeading === "_No task recorded yet._"
-  ) {
-    return "";
-  }
-  return sanitizeUserText(withoutHeading.replace(/\n+/g, " "));
-}
-
 function renderDump(state: DumpState): string {
   return withFrontmatter(
-    "Thought dump — parked ideas from the human. Not the current task. Do not chase these unless asked.",
+    "Thought dump — parked ideas from the human. Do not chase these unless asked.",
     [
       "# Scratchpad",
       "",
-      "The human parks stray thoughts here while working. They are **not** the current task.",
+      "The human parks stray thoughts here while working.",
       "",
       "Do not switch to dump items unless asked.",
-      "",
-      "You own `.cursor/rules/current_task.mdc`. As the actual work changes, rewrite that file so `## Now` matches what you are doing. Keep `alwaysApply: true` in its frontmatter. The human will not maintain it.",
       "",
       renderInboxMarkdown(state.inbox),
       "",
       renderFooter(state.updatedAt),
-    ],
-  );
-}
-
-function renderCurrentTaskSeed(): string {
-  return withFrontmatter(
-    "Current task for this project. The agent owns this file — update it as the work changes.",
-    [
-      "# Current task",
-      "",
-      "You own this file. Rewrite `## Now` whenever the work in this session changes. Do not wait for the human. Do not replace it with scratchpad dump items unless they asked you to.",
-      "",
-      "## Now",
-      "",
-      "_No task recorded yet. Set this on the first real piece of work._",
-      "",
     ],
   );
 }
@@ -274,8 +220,7 @@ async function ensureLocalGitExclude(root: string): Promise<void> {
       .filter((line) => line.length > 0 && !line.startsWith("#")),
   );
 
-  const missing = EXCLUDE_MARKERS.filter((line) => !present.has(line));
-  if (missing.length === 0) {
+  if (present.has(DUMP_REL)) {
     return;
   }
 
@@ -286,7 +231,7 @@ async function ensureLocalGitExclude(root: string): Promise<void> {
   if (!next.includes("# scratchpad")) {
     next += "\n# scratchpad (local only, not committed)\n";
   }
-  next += `${missing.join("\n")}\n`;
+  next += `${DUMP_REL}\n`;
   await atomicWrite(excludePath, next);
 }
 

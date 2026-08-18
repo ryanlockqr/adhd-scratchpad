@@ -5,13 +5,13 @@
 
 Park the thought. Keep coding.
 
-A Cursor sidebar for dumping stray ideas **as you work**. You only maintain the dump. The agent keeps the current task in sync with what it is actually doing.
+A Cursor sidebar for dumping stray ideas **as you work**. You maintain the dump. The agent is told not to chase it.
 
 ## Why
 
 Heads fill up mid-task. If you chase the new thought, the original work dies. If you try to remember it, it sits there and pulls.
 
-Dump it. Stay on the work. The agent is told not to chase the dump, and to rewrite the current-task file itself when the work changes.
+Dump it. Stay on the work. The agent is told not to chase the dump.
 
 Per project. Personal. The agent in that folder can read it. Git cannot.
 
@@ -34,20 +34,17 @@ Open the Scratchpad icon in the activity bar.
 | Type a thought, press **Enter** | Appends `- [ ]` to the dump |
 | Check or Remove | Mark done or drop it |
 
-The **Current task** card is read-only. The agent fills it in and updates it as the session moves.
-
 Command Palette: Quick Dump, Clear Dump.
 
 ## How it works
 
-Writes two Cursor rules in the **open project folder**:
+Writes one Cursor rule in the **open project folder**:
 
 | Path | Who writes it | Role |
 | --- | --- | --- |
-| `.cursor/rules/scratchpad.mdc` | You (via the sidebar) | Parked thoughts. Tells the agent not to chase them, and to maintain the current-task file. |
-| `.cursor/rules/current_task.mdc` | The agent | What is actually being worked on. Seeded once; never overwritten by the extension. |
+| `.cursor/rules/scratchpad.mdc` | You (via the sidebar) | Parked thoughts. Tells the agent not to chase them. |
 
-Both paths are added to **`.git/info/exclude`** — your local ignore list, not a commit. Shared `.cursor/rules` stay shared. The project `.gitignore` is left alone.
+That path is added to **`.git/info/exclude`** — your local ignore list, not a commit. Shared `.cursor/rules` stay shared. The project `.gitignore` is left alone.
 
 ## Develop
 
@@ -55,7 +52,7 @@ Both paths are added to **`.git/info/exclude`** — your local ignore list, not 
 npm install
 ```
 
-Press **F5** to launch an Extension Development Host. Open a folder, dump a thought, and confirm `scratchpad.mdc` plus the exclude entries. After the agent works, `current_task.mdc` should change on its own.
+Press **F5** to launch an Extension Development Host. Open a folder, dump a thought, and confirm `scratchpad.mdc` plus the exclude entry.
 
 ## Release
 

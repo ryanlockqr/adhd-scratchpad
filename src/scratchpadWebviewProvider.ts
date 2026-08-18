@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import {
   cloneState,
   createInboxItem,
-  CURRENT_TASK_REL,
   DumpState,
   EMPTY_STATE,
   isDumpState,
@@ -20,14 +19,12 @@ type WebviewToExtension =
   | { type: "toggleInbox"; id: string }
   | { type: "removeInbox"; id: string };
 
-export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "scratchpad.sidebar";
 
   private view: vscode.WebviewView | undefined;
   private state: DumpState = cloneState(EMPTY_STATE);
-  private currentTask = "";
   private syncing = false;
-  private taskWatcher: vscode.FileSystemWatcher | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -40,9 +37,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
     if (isDumpState(stored)) {
       this.state = cloneState(stored);
     }
-
-    await this.refreshCurrentTask();
-    this.watchCurrentTask();
 
     if (this.state.inbox.length > 0) {
       await this.persistAndSync();
@@ -109,46 +103,9 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
   }
 
   public async resync(): Promise<void> {
-    this.watchCurrentTask();
-    await this.refreshCurrentTask();
     if (this.state.inbox.length > 0) {
       await this.persistAndSync();
     }
-  }
-
-  public async refreshCurrentTask(): Promise<void> {
-    try {
-      this.currentTask = await this.engine.readCurrentTask();
-      this.postState();
-    } catch (error) {
-      this.showError(error);
-    }
-  }
-
-  public dispose(): void {
-    this.taskWatcher?.dispose();
-    this.taskWatcher = undefined;
-  }
-
-  private watchCurrentTask(): void {
-    this.taskWatcher?.dispose();
-    this.taskWatcher = undefined;
-
-    const root = this.engine.getRootSafe();
-    if (!root) {
-      return;
-    }
-
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, CURRENT_TASK_REL),
-    );
-    const refresh = (): void => {
-      void this.refreshCurrentTask();
-    };
-    watcher.onDidChange(refresh);
-    watcher.onDidCreate(refresh);
-    watcher.onDidDelete(refresh);
-    this.taskWatcher = watcher;
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -216,7 +173,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
     void this.view.webview.postMessage({
       type: "state",
       state: this.state,
-      currentTask: this.currentTask,
       syncing: this.syncing,
       hasWorkspace: this.engine.getRootSafe() !== undefined,
     });
@@ -304,10 +260,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
       padding: 10px;
     }
 
-    .card.task {
-      border-left: 3px solid var(--vscode-focusBorder);
-    }
-
     input[type="text"] {
       width: 100%;
       border: 1px solid var(--vscode-input-border, transparent);
@@ -332,16 +284,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
     .hint {
       margin: 6px 0 0;
       font-size: 11px;
-      color: var(--vscode-descriptionForeground);
-    }
-
-    .task-body {
-      margin: 0;
-      line-height: 1.4;
-      word-break: break-word;
-    }
-
-    .task-body.empty {
       color: var(--vscode-descriptionForeground);
     }
 
@@ -432,7 +374,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
       Open a project folder. The dump is per-repo and stays off git.
     </div>
 
-    <section class="card dump">
+    <section class="card">
       <div class="eyebrow">
         <span class="label">Dump</span>
         <span class="status" id="status">Idle</span>
@@ -445,16 +387,8 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
         autocomplete="off"
         spellcheck="true"
       />
-      <p class="hint">Dump as you work. Enter captures it as <code>- [ ]</code>. It is not the task.</p>
+      <p class="hint">Dump as you work. Enter captures it as <code>- [ ]</code>.</p>
       <div class="inbox" id="inbox"></div>
-    </section>
-
-    <section class="card task">
-      <div class="eyebrow">
-        <span class="label">Current task</span>
-      </div>
-      <p class="task-body empty" id="current-task">The agent fills this in as you work.</p>
-      <p class="hint">You do not edit this. The agent rewrites it when the work changes.</p>
     </section>
   </div>
 
@@ -464,7 +398,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
     const inboxEl = document.getElementById("inbox");
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("workspace-banner");
-    const currentTaskEl = document.getElementById("current-task");
 
     const previous = vscode.getState();
     if (previous && previous.state) {
@@ -528,15 +461,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
 
       statusEl.dataset.busy = payload.syncing ? "true" : "false";
       statusEl.textContent = payload.syncing ? "Syncing…" : "Synced";
-
-      const task = (payload.currentTask || "").trim();
-      if (task) {
-        currentTaskEl.classList.remove("empty");
-        currentTaskEl.textContent = task;
-      } else {
-        currentTaskEl.classList.add("empty");
-        currentTaskEl.textContent = "The agent fills this in as you work.";
-      }
 
       if (!state.inbox || state.inbox.length === 0) {
         inboxEl.innerHTML = '<div class="empty">Nothing dumped. Park a thought to get it out of your head.</div>';
