@@ -1,0 +1,138 @@
+{
+  "name": "adhd-scratchpad",
+  "displayName": "ADHD Scratchpad",
+  "description": "Frictionless capture inbox and focus anchor for neurodivergent developers. Syncs thoughts to Cursor, Windsurf, Zed, Claude Code, and Aider in real time.",
+  "version": "0.1.0",
+  "publisher": "ryanlockqr",
+  "license": "MIT",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryanlockqr/context-scratchpad.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ryanlockqr/context-scratchpad/issues"
+  },
+  "homepage": "https://github.com/ryanlockqr/context-scratchpad#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "adhd",
+    "neurodivergent",
+    "scratchpad",
+    "inbox",
+    "focus",
+    "cursor",
+    "windsurf",
+    "claude",
+    "aider",
+    "zed",
+    "agents.md",
+    "context"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "adhdScratchpad",
+          "title": "Scratchpad",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "adhdScratchpad": [
+        {
+          "type": "webview",
+          "id": "adhdScratchpad.sidebar",
+          "name": "Capture",
+          "contextualTitle": "ADHD Scratchpad"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "adhdScratchpad.quickDump",
+        "title": "Quick Dump Thought",
+        "category": "ADHD Scratchpad"
+      },
+      {
+        "command": "adhdScratchpad.setAnchor",
+        "title": "Set Focus Anchor",
+        "category": "ADHD Scratchpad"
+      },
+      {
+        "command": "adhdScratchpad.clearInbox",
+        "title": "Clear Inbox",
+        "category": "ADHD Scratchpad"
+      },
+      {
+        "command": "adhdScratchpad.clearAnchor",
+        "title": "Clear Focus Anchor",
+        "category": "ADHD Scratchpad"
+      },
+      {
+        "command": "adhdScratchpad.focusSidebar",
+        "title": "Focus Sidebar",
+        "category": "ADHD Scratchpad"
+      }
+    ],
+    "configuration": {
+      "title": "ADHD Scratchpad",
+      "properties": {
+        "adhdScratchpad.writeCursorRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write always-on Cursor rules to .cursor/rules/adhd_inbox.mdc and adhd_anchor.mdc."
+        },
+        "adhdScratchpad.writeWindsurfRules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write always-on Windsurf rules to .windsurf/rules/."
+        },
+        "adhdScratchpad.writeAgentsMd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Upsert an ADHD Scratchpad section into AGENTS.md (Zed, Aider, Codex, and other agents)."
+        },
+        "adhdScratchpad.writeClaudeMd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Upsert an ADHD Scratchpad section into CLAUDE.md (Claude Code and Aider)."
+        }
+      }
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "ADHD Scratchpad writes markdown rule files into the workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "ADHD Scratchpad requires a local filesystem to sync agent rule files."
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -p ./ -watch",
+    "lint": "tsc --noEmit -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.7.2"
+  }
+}
