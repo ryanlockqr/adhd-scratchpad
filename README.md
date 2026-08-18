@@ -3,7 +3,7 @@
 [![Open VSX](https://img.shields.io/open-vsx/v/ryanlockqr/adhd-scratchpad)](https://open-vsx.org/extension/ryanlockqr/adhd-scratchpad)
 [![CI](https://github.com/ryanlockqr/context-scratchpad/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanlockqr/context-scratchpad/actions/workflows/ci.yml)
 
-A Cursor sidebar for ADHD / neurodivergent workflows: dump the thought that just hijacked your attention, pin the one task you are actually doing. Every change is written as always-on Cursor rules so the agent in this repo sees it.
+A Cursor sidebar for ADHD workflows: dump the thought that just hijacked your attention, pin the one task you are actually doing. Every change is written as always-on Cursor rules so the agent in this repo sees it.
 
 ## Install
 
