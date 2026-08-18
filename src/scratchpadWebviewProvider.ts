@@ -2,33 +2,32 @@ import * as vscode from "vscode";
 import {
   cloneState,
   createInboxItem,
+  CURRENT_TASK_REL,
+  DumpState,
   EMPTY_STATE,
-  isScratchpadState,
+  isDumpState,
   MAX_INBOX_ITEMS,
   sanitizeUserText,
-  ScratchpadState,
   SyncEngine,
   SyncError,
 } from "./syncEngine";
 
-const STATE_KEY = "adhdScratchpad.state";
-const ANCHOR_DEBOUNCE_MS = 250;
+const STATE_KEY = "scratchpad.state";
 
 type WebviewToExtension =
   | { type: "ready" }
   | { type: "dump"; text: string }
-  | { type: "setAnchor"; text: string }
   | { type: "toggleInbox"; id: string }
-  | { type: "removeInbox"; id: string }
-  | { type: "promoteInbox"; id: string };
+  | { type: "removeInbox"; id: string };
 
-export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "adhdScratchpad.sidebar";
+export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+  public static readonly viewType = "scratchpad.sidebar";
 
   private view: vscode.WebviewView | undefined;
-  private state: ScratchpadState = cloneState(EMPTY_STATE);
-  private anchorTimer: ReturnType<typeof setTimeout> | undefined;
+  private state: DumpState = cloneState(EMPTY_STATE);
+  private currentTask = "";
   private syncing = false;
+  private taskWatcher: vscode.FileSystemWatcher | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -38,11 +37,14 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 
   public async initialize(): Promise<void> {
     const stored = this.memento.get<unknown>(STATE_KEY);
-    if (isScratchpadState(stored)) {
+    if (isDumpState(stored)) {
       this.state = cloneState(stored);
     }
 
-    if (this.hasContent(this.state)) {
+    await this.refreshCurrentTask();
+    this.watchCurrentTask();
+
+    if (this.state.inbox.length > 0) {
       await this.persistAndSync();
     }
   }
@@ -77,7 +79,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 
     if (this.state.inbox.length >= MAX_INBOX_ITEMS) {
       void vscode.window.showWarningMessage(
-        `Inbox is full (${MAX_INBOX_ITEMS} items). Clear completed thoughts first.`,
+        `Dump is full (${MAX_INBOX_ITEMS} items). Clear completed thoughts first.`,
       );
       return;
     }
@@ -86,7 +88,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 
     this.state = {
       inbox: [...this.state.inbox, item],
-      anchor: this.state.anchor,
       updatedAt: new Date().toISOString(),
     };
 
@@ -94,38 +95,60 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     this.postState();
   }
 
-  public async setAnchor(raw: string): Promise<void> {
-    this.state = {
-      inbox: this.state.inbox,
-      anchor: sanitizeUserText(raw),
-      updatedAt: new Date().toISOString(),
-    };
-    await this.persistAndSync();
-    this.postState();
-  }
-
-  public async clearInbox(): Promise<void> {
+  public async clearDump(): Promise<void> {
     this.state = {
       inbox: [],
-      anchor: this.state.anchor,
       updatedAt: new Date().toISOString(),
     };
     await this.persistAndSync();
     this.postState();
-  }
-
-  public async clearAnchor(): Promise<void> {
-    await this.setAnchor("");
   }
 
   public reveal(): void {
-    void vscode.commands.executeCommand(`${AdhdWebviewProvider.viewType}.focus`);
+    void vscode.commands.executeCommand(`${ScratchpadWebviewProvider.viewType}.focus`);
   }
 
   public async resync(): Promise<void> {
-    if (this.hasContent(this.state)) {
+    this.watchCurrentTask();
+    await this.refreshCurrentTask();
+    if (this.state.inbox.length > 0) {
       await this.persistAndSync();
     }
+  }
+
+  public async refreshCurrentTask(): Promise<void> {
+    try {
+      this.currentTask = await this.engine.readCurrentTask();
+      this.postState();
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  public dispose(): void {
+    this.taskWatcher?.dispose();
+    this.taskWatcher = undefined;
+  }
+
+  private watchCurrentTask(): void {
+    this.taskWatcher?.dispose();
+    this.taskWatcher = undefined;
+
+    const root = this.engine.getRootSafe();
+    if (!root) {
+      return;
+    }
+
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, CURRENT_TASK_REL),
+    );
+    const refresh = (): void => {
+      void this.refreshCurrentTask();
+    };
+    watcher.onDidChange(refresh);
+    watcher.onDidCreate(refresh);
+    watcher.onDidDelete(refresh);
+    this.taskWatcher = watcher;
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -140,29 +163,13 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       case "dump":
         await this.dumpThought(message.text);
         return;
-      case "setAnchor":
-        this.queueAnchor(message.text);
-        return;
       case "toggleInbox":
         await this.toggleInbox(message.id);
         return;
       case "removeInbox":
         await this.removeInbox(message.id);
         return;
-      case "promoteInbox":
-        await this.promoteInbox(message.id);
-        return;
     }
-  }
-
-  private queueAnchor(text: string): void {
-    if (this.anchorTimer !== undefined) {
-      clearTimeout(this.anchorTimer);
-    }
-    this.anchorTimer = setTimeout(() => {
-      this.anchorTimer = undefined;
-      void this.setAnchor(text);
-    }, ANCHOR_DEBOUNCE_MS);
   }
 
   private async toggleInbox(id: string): Promise<void> {
@@ -171,7 +178,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     );
     this.state = {
       inbox,
-      anchor: this.state.anchor,
       updatedAt: new Date().toISOString(),
     };
     await this.persistAndSync();
@@ -181,19 +187,10 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
   private async removeInbox(id: string): Promise<void> {
     this.state = {
       inbox: this.state.inbox.filter((item) => item.id !== id),
-      anchor: this.state.anchor,
       updatedAt: new Date().toISOString(),
     };
     await this.persistAndSync();
     this.postState();
-  }
-
-  private async promoteInbox(id: string): Promise<void> {
-    const item = this.state.inbox.find((entry) => entry.id === id);
-    if (!item) {
-      return;
-    }
-    await this.setAnchor(item.text);
   }
 
   private async persistAndSync(): Promise<void> {
@@ -203,7 +200,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     this.postState();
 
     try {
-      await this.engine.sync(this.state);
+      await this.engine.syncDump(this.state);
     } catch (error) {
       this.showError(error);
     } finally {
@@ -219,6 +216,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({
       type: "state",
       state: this.state,
+      currentTask: this.currentTask,
       syncing: this.syncing,
       hasWorkspace: this.engine.getRootSafe() !== undefined,
     });
@@ -233,11 +231,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
         : error instanceof Error
           ? error.message
           : String(error);
-    void vscode.window.showErrorMessage(`ADHD Scratchpad: ${message}`);
-  }
-
-  private hasContent(state: ScratchpadState): boolean {
-    return state.inbox.length > 0 || sanitizeUserText(state.anchor).length > 0;
+    void vscode.window.showErrorMessage(`Scratchpad: ${message}`);
   }
 
   private renderHtml(webview: vscode.Webview): string {
@@ -248,7 +242,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ADHD Scratchpad</title>
+  <title>Scratchpad</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -310,12 +304,11 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       padding: 10px;
     }
 
-    .card.anchor {
+    .card.task {
       border-left: 3px solid var(--vscode-focusBorder);
     }
 
-    input[type="text"],
-    textarea {
+    input[type="text"] {
       width: 100%;
       border: 1px solid var(--vscode-input-border, transparent);
       background: var(--vscode-input-background);
@@ -327,26 +320,28 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       outline: none;
     }
 
-    input[type="text"]::placeholder,
-    textarea::placeholder {
+    input[type="text"]::placeholder {
       color: var(--vscode-input-placeholderForeground);
     }
 
-    input[type="text"]:focus,
-    textarea:focus {
+    input[type="text"]:focus {
       border-color: var(--vscode-focusBorder);
       box-shadow: 0 0 0 1px var(--vscode-focusBorder);
-    }
-
-    textarea {
-      resize: vertical;
-      min-height: 72px;
-      line-height: 1.4;
     }
 
     .hint {
       margin: 6px 0 0;
       font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .task-body {
+      margin: 0;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .task-body.empty {
       color: var(--vscode-descriptionForeground);
     }
 
@@ -434,12 +429,12 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 <body>
   <div class="stack">
     <div id="workspace-banner" class="banner" hidden>
-      Open a project folder. The scratchpad is per-repo and stays off git.
+      Open a project folder. The dump is per-repo and stays off git.
     </div>
 
     <section class="card dump">
       <div class="eyebrow">
-        <span class="label">Quick brain dump</span>
+        <span class="label">Dump</span>
         <span class="status" id="status">Idle</span>
       </div>
       <input
@@ -450,30 +445,26 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
         autocomplete="off"
         spellcheck="true"
       />
-      <p class="hint">Enter captures it as <code>- [ ]</code>. It leaves your head; it does not become the task.</p>
+      <p class="hint">Dump as you work. Enter captures it as <code>- [ ]</code>. It is not the task.</p>
       <div class="inbox" id="inbox"></div>
     </section>
 
-    <section class="card anchor">
+    <section class="card task">
       <div class="eyebrow">
-        <span class="label">Active anchor task</span>
+        <span class="label">Current task</span>
       </div>
-      <textarea
-        id="anchor"
-        maxlength="2000"
-        placeholder="What are you actually trying to finish right now?"
-      ></textarea>
-      <p class="hint">Agents are told to protect this focus and ignore the inbox unless you ask.</p>
+      <p class="task-body empty" id="current-task">The agent fills this in as you work.</p>
+      <p class="hint">You do not edit this. The agent rewrites it when the work changes.</p>
     </section>
   </div>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const dumpInput = document.getElementById("dump");
-    const anchorInput = document.getElementById("anchor");
     const inboxEl = document.getElementById("inbox");
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("workspace-banner");
+    const currentTaskEl = document.getElementById("current-task");
 
     const previous = vscode.getState();
     if (previous && previous.state) {
@@ -493,10 +484,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       }
       vscode.postMessage({ type: "dump", text });
       dumpInput.value = "";
-    });
-
-    anchorInput.addEventListener("input", () => {
-      vscode.postMessage({ type: "setAnchor", text: anchorInput.value });
     });
 
     inboxEl.addEventListener("change", (event) => {
@@ -521,14 +508,8 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       }
       const id = button.getAttribute("data-id");
       const action = button.getAttribute("data-action");
-      if (!id || !action) {
-        return;
-      }
-      if (action === "remove") {
+      if (id && action === "remove") {
         vscode.postMessage({ type: "removeInbox", id });
-      }
-      if (action === "promote") {
-        vscode.postMessage({ type: "promoteInbox", id });
       }
     });
 
@@ -542,20 +523,23 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     function render(payload) {
-      const state = payload.state || { inbox: [], anchor: "" };
+      const state = payload.state || { inbox: [] };
       bannerEl.hidden = Boolean(payload.hasWorkspace);
-
-      if (document.activeElement !== anchorInput) {
-        if (anchorInput.value !== (state.anchor || "")) {
-          anchorInput.value = state.anchor || "";
-        }
-      }
 
       statusEl.dataset.busy = payload.syncing ? "true" : "false";
       statusEl.textContent = payload.syncing ? "Syncing…" : "Synced";
 
+      const task = (payload.currentTask || "").trim();
+      if (task) {
+        currentTaskEl.classList.remove("empty");
+        currentTaskEl.textContent = task;
+      } else {
+        currentTaskEl.classList.add("empty");
+        currentTaskEl.textContent = "The agent fills this in as you work.";
+      }
+
       if (!state.inbox || state.inbox.length === 0) {
-        inboxEl.innerHTML = '<div class="empty">Nothing parked. Dump a thought to get it out of your head.</div>';
+        inboxEl.innerHTML = '<div class="empty">Nothing dumped. Park a thought to get it out of your head.</div>';
         return;
       }
 
@@ -570,7 +554,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
           '<input type="checkbox" data-id="' + escapeAttr(item.id) + '"' + checked + ' />' +
           '<div class="text">' + escapeHtml(item.text) + '</div>' +
           '<div class="actions">' +
-            '<button class="ghost" type="button" data-action="promote" data-id="' + escapeAttr(item.id) + '">Focus</button>' +
             '<button class="ghost" type="button" data-action="remove" data-id="' + escapeAttr(item.id) + '">Remove</button>' +
           '</div>' +
         '</div>'
@@ -605,11 +588,9 @@ function isWebviewMessage(value: unknown): value is WebviewToExtension {
     case "ready":
       return true;
     case "dump":
-    case "setAnchor":
       return typeof (value as { text?: unknown }).text === "string";
     case "toggleInbox":
     case "removeInbox":
-    case "promoteInbox":
       return typeof (value as { id?: unknown }).id === "string";
     default:
       return false;
