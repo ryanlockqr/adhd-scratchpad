@@ -9,7 +9,6 @@ import {
   ScratchpadState,
   SyncEngine,
   SyncError,
-  type InboxItem,
 } from "./syncEngine";
 
 const STATE_KEY = "adhdScratchpad.state";
@@ -41,12 +40,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     const stored = this.memento.get<unknown>(STATE_KEY);
     if (isScratchpadState(stored)) {
       this.state = cloneState(stored);
-    } else {
-      const hydrated = await this.engine.tryHydrateFromDisk();
-      if (hydrated) {
-        this.state = hydrated;
-        await this.memento.update(STATE_KEY, this.state);
-      }
     }
 
     if (this.hasContent(this.state)) {
@@ -82,20 +75,14 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    let item: InboxItem;
-    try {
-      item = createInboxItem(text);
-    } catch (error) {
-      this.showError(error);
-      return;
-    }
-
     if (this.state.inbox.length >= MAX_INBOX_ITEMS) {
       void vscode.window.showWarningMessage(
         `Inbox is full (${MAX_INBOX_ITEMS} items). Clear completed thoughts first.`,
       );
       return;
     }
+
+    const item = createInboxItem(text);
 
     this.state = {
       inbox: [...this.state.inbox, item],
@@ -216,7 +203,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
     this.postState();
 
     try {
-      await this.engine.sync(this.state, readSyncTargets());
+      await this.engine.sync(this.state);
     } catch (error) {
       this.showError(error);
     } finally {
@@ -447,7 +434,7 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 <body>
   <div class="stack">
     <div id="workspace-banner" class="banner" hidden>
-      Open a folder to sync your scratchpad into Cursor, Windsurf, Claude Code, Zed, and Aider.
+      Open a folder to sync your scratchpad into Cursor rules.
     </div>
 
     <section class="card dump">
@@ -606,16 +593,6 @@ export class AdhdWebviewProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
-}
-
-function readSyncTargets() {
-  const config = vscode.workspace.getConfiguration("adhdScratchpad");
-  return {
-    writeCursorRules: config.get<boolean>("writeCursorRules", true),
-    writeWindsurfRules: config.get<boolean>("writeWindsurfRules", true),
-    writeAgentsMd: config.get<boolean>("writeAgentsMd", true),
-    writeClaudeMd: config.get<boolean>("writeClaudeMd", true),
-  };
 }
 
 function isWebviewMessage(value: unknown): value is WebviewToExtension {
