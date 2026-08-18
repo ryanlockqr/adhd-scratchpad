@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { AdhdWebviewProvider } from "./adhdWebviewProvider";
-import { SyncEngine, SyncError } from "./syncEngine";
+import { SyncEngine } from "./syncEngine";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const engine = new SyncEngine(() => resolveWorkspaceRoot());
@@ -10,7 +10,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.workspaceState,
   );
 
-  await bootstrapWorkspace(engine);
+  await bootstrapProject(engine);
 
   try {
     await provider.initialize();
@@ -24,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void (async () => {
-        await bootstrapWorkspace(engine);
+        await bootstrapProject(engine);
         await provider.resync();
       })();
     }),
@@ -72,11 +72,11 @@ export function deactivate(): void {
   // No long-lived processes to tear down.
 }
 
-async function bootstrapWorkspace(engine: SyncEngine): Promise<void> {
+async function bootstrapProject(engine: SyncEngine): Promise<void> {
   try {
-    await engine.ensureRuleDirectories();
+    await engine.ensureProjectStore();
   } catch (error) {
-    if (error instanceof SyncError && error.message.includes("No workspace folder")) {
+    if (error instanceof Error && error.message.includes("No workspace folder")) {
       return;
     }
     showActivationError(error);
