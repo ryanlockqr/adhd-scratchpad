@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.2] - 2026-08-21
+
+- Slim marketplace README; move develop/release docs to CONTRIBUTING.md
+
 ## [0.1.1] - 2026-08-21
 
 - Marketplace / UI name: **Cursor Scratchpad**

@@ -5,27 +5,13 @@
 
 Park the thought. Keep coding.
 
-A Cursor sidebar for dumping stray ideas **as you work**. Chuck thoughts in. Stay on the task. Ask the agent to organize the dump when you want.
-
-Built for **Cursor** (Open VSX). The dump feeds Cursor rules/skills so the agent can respect parked thoughts.
+A Cursor sidebar for dumping stray ideas as you work. Chuck thoughts in. Stay on the task. Ask the agent to organize the dump when you want.
 
 ## Why
 
-Heads fill up mid-task. If you chase the new thought, the original work dies. If you try to remember it, it sits there and pulls.
+Mid-task ideas pull focus. Dump them here instead of chasing them. The agent is told not to chase the dump — and can triage it when you ask.
 
-Dump it. Stay on the work. The agent is told not to chase the dump — and can triage it when you ask.
-
-Per project. The dump is personal and stays off git. The small rule and organize skill are seeded into the project so the agent knows what to do.
-
-## Install
-
-Cursor pulls extensions from Open VSX.
-
-1. Open the Extensions view.
-2. Search **Cursor Scratchpad**.
-3. Install, then open a project folder.
-
-[open-vsx.org/extension/ryanlockqr/scratchpad](https://open-vsx.org/extension/ryanlockqr/scratchpad)
+Per project. The dump stays off git. A small rule and organize skill are seeded so the agent knows what to do.
 
 ## Usage
 
@@ -41,36 +27,17 @@ Command Palette: Quick Dump, Clear Dump.
 
 ## How it works
 
-Three layers in the **open project folder**:
+| Path | Role |
+| --- | --- |
+| `.cursor/scratchpad.md` | Parked thoughts (hidden from explorer; off git) |
+| `.cursor/rules/scratchpad.mdc` | Don’t chase parked thoughts |
+| `.cursor/skills/organize-scratchpad/SKILL.md` | Triage the dump on request |
 
-| Path | Who writes it | Role |
-| --- | --- | --- |
-| `.cursor/scratchpad.md` | Sidebar + agent | **Source of truth** for parked thoughts (hidden from explorer) |
-| `.cursor/rules/scratchpad.mdc` | Extension (stable) | Always-on: don’t chase parked thoughts |
-| `.cursor/skills/organize-scratchpad/SKILL.md` | Extension (stable) | On request: triage / clean up the dump |
+The dump is a normal markdown file so the agent can read and rewrite it. Rule and skill can be committed if you want teammates to get the same agent behavior.
 
-Only the dump is added to **`.git/info/exclude`**. It is also hidden from the explorer/search so you manage thoughts in the sidebar, not as a loose markdown file. The sidebar always reads/writes that file, and reloads when the agent rewrites it. Rule and skill can be committed if you want teammates to get the same agent behavior.
+## Contributing
 
-Why a markdown file under `.cursor/`? The agent has to read and rewrite the dump with normal tools. Extension-only storage would hide it from Cursor’s agent. `.cursor/scratchpad.md` is project-local Cursor state: not a rule, not a skill — the inbox the rule/skill point at.
-
-## Develop
-
-```bash
-npm install
-```
-
-Press **F5** to launch an Extension Development Host. Open a folder, dump a thought, and confirm `.cursor/scratchpad.md` plus the exclude entry, rule, and skill.
-
-## Release
-
-After a version lands on `main`, tag it. GitHub Actions packages the VSIX, publishes to Open VSX, and attaches the build to the GitHub release.
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Tag must match `package.json` `version`. First-time Open VSX setup: create publisher `ryanlockqr`, store `OVSX_PAT` as a GitHub Actions secret, then `npx ovsx create-namespace ryanlockqr -p "$OVSX_PAT"`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for develop and release steps.
 
 ## License
 
