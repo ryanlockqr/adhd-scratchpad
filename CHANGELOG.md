@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.1] - 2026-08-21
+
+- Marketplace / UI name: **Cursor Scratchpad**
+
 ## [0.1.0] - 2026-08-18
 
 - Scratchpad sidebar: Enter parks a thought as `- [ ]` while you work
