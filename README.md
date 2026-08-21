@@ -1,19 +1,21 @@
 # Scratchpad
 
 [![Open VSX](https://img.shields.io/open-vsx/v/ryanlockqr/scratchpad)](https://open-vsx.org/extension/ryanlockqr/scratchpad)
-[![CI](https://github.com/ryanlockqr/adhd-scratchpad/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanlockqr/adhd-scratchpad/actions/workflows/ci.yml)
+[![CI](https://github.com/ryanlockqr/cursor-scratchpad/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanlockqr/cursor-scratchpad/actions/workflows/ci.yml)
 
 Park the thought. Keep coding.
 
-A Cursor sidebar for dumping stray ideas **as you work**. You maintain the dump. The agent is told not to chase it.
+A Cursor sidebar for dumping stray ideas **as you work**. Chuck thoughts in. Stay on the task. Ask the agent to organize the dump when you want.
+
+Built for **Cursor** (Open VSX). The dump feeds Cursor rules/skills so the agent can respect parked thoughts.
 
 ## Why
 
 Heads fill up mid-task. If you chase the new thought, the original work dies. If you try to remember it, it sits there and pulls.
 
-Dump it. Stay on the work. The agent is told not to chase the dump.
+Dump it. Stay on the work. The agent is told not to chase the dump — and can triage it when you ask.
 
-Per project. Personal. The agent in that folder can read it. Git cannot.
+Per project. The dump is personal and stays off git. The small rule and organize skill are seeded into the project so the agent knows what to do.
 
 ## Install
 
@@ -33,18 +35,23 @@ Open the Scratchpad icon in the activity bar.
 | --- | --- |
 | Type a thought, press **Enter** | Appends `- [ ]` to the dump |
 | Check or Remove | Mark done or drop it |
+| Ask the agent to organize / triage the dump | Uses the `organize-scratchpad` skill |
 
 Command Palette: Quick Dump, Clear Dump.
 
 ## How it works
 
-Writes one Cursor rule in the **open project folder**:
+Three layers in the **open project folder**:
 
 | Path | Who writes it | Role |
 | --- | --- | --- |
-| `.cursor/rules/scratchpad.mdc` | You (via the sidebar) | Parked thoughts. Tells the agent not to chase them. |
+| `.cursor/scratchpad.md` | Sidebar + agent | **Source of truth** for parked thoughts (hidden from explorer) |
+| `.cursor/rules/scratchpad.mdc` | Extension (stable) | Always-on: don’t chase parked thoughts |
+| `.cursor/skills/organize-scratchpad/SKILL.md` | Extension (stable) | On request: triage / clean up the dump |
 
-That path is added to **`.git/info/exclude`** — your local ignore list, not a commit. Shared `.cursor/rules` stay shared. The project `.gitignore` is left alone.
+Only the dump is added to **`.git/info/exclude`**. It is also hidden from the explorer/search so you manage thoughts in the sidebar, not as a loose markdown file. The sidebar always reads/writes that file, and reloads when the agent rewrites it. Rule and skill can be committed if you want teammates to get the same agent behavior.
+
+Why a markdown file under `.cursor/`? The agent has to read and rewrite the dump with normal tools. Extension-only storage would hide it from Cursor’s agent. `.cursor/scratchpad.md` is project-local Cursor state: not a rule, not a skill — the inbox the rule/skill point at.
 
 ## Develop
 
@@ -52,7 +59,7 @@ That path is added to **`.git/info/exclude`** — your local ignore list, not a 
 npm install
 ```
 
-Press **F5** to launch an Extension Development Host. Open a folder, dump a thought, and confirm `scratchpad.mdc` plus the exclude entry.
+Press **F5** to launch an Extension Development Host. Open a folder, dump a thought, and confirm `.cursor/scratchpad.md` plus the exclude entry, rule, and skill.
 
 ## Release
 

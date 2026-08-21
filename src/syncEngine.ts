@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 
 export interface InboxItem {
   readonly id: string;
@@ -22,8 +23,16 @@ export const EMPTY_STATE: DumpState = {
 export const MAX_ITEM_LENGTH = 2_000;
 export const MAX_INBOX_ITEMS = 500;
 
-const DUMP_REL = ".cursor/rules/scratchpad.mdc";
-const RULES_DIR = path.join(".cursor", "rules");
+/** Source of truth for parked thoughts. Hidden from explorer; sidebar + agent both use this file. */
+export const DUMP_REL = ".cursor/scratchpad.md";
+/** Stable Cursor rule — not rewritten on dump. */
+const RULE_REL = ".cursor/rules/scratchpad.mdc";
+/** Cursor skill for triage — not rewritten on dump. */
+const SKILL_REL = path.join(".cursor", "skills", "organize-scratchpad", "SKILL.md");
+
+const EXCLUDE_MARKERS = [DUMP_REL];
+const CHECKBOX_RE = /^- \[([ xX])\]\s+(.+?)(?:\s+<!--id:([^\s>]+)-->)?\s*$/;
+const FOOTER_RE = /_Last synced:\s*([^\s_]+)/;
 
 export class SyncError extends Error {
   public override readonly name = "SyncError";
@@ -38,6 +47,7 @@ export class SyncError extends Error {
 
 export class SyncEngine {
   private writeChain: Promise<void> = Promise.resolve();
+  private writing = false;
 
   public constructor(private readonly getWorkspace: () => string | undefined) {}
 
@@ -55,11 +65,42 @@ export class SyncEngine {
     return root;
   }
 
+  public dumpAbsolutePath(): string | undefined {
+    const root = this.getRootSafe();
+    return root ? path.join(root, DUMP_REL) : undefined;
+  }
+
+  public isWritingDump(): boolean {
+    return this.writing;
+  }
+
   public async ensureProjectStore(): Promise<void> {
     const root = this.resolveRoot();
-    await fs.mkdir(path.join(root, RULES_DIR), { recursive: true });
+    await fs.mkdir(path.dirname(path.join(root, DUMP_REL)), { recursive: true });
+    await fs.mkdir(path.dirname(path.join(root, RULE_REL)), { recursive: true });
+    await fs.mkdir(path.dirname(path.join(root, SKILL_REL)), { recursive: true });
     await ensureLocalGitExclude(root);
     await seedFileIfMissing(path.join(root, DUMP_REL), renderDump(EMPTY_STATE));
+    await atomicWrite(path.join(root, RULE_REL), renderRule());
+    await atomicWrite(path.join(root, SKILL_REL), renderOrganizeSkill());
+  }
+
+  public async readDump(): Promise<DumpState> {
+    const root = this.getRootSafe();
+    if (!root) {
+      return cloneState(EMPTY_STATE);
+    }
+
+    await this.ensureProjectStore();
+    try {
+      const contents = await fs.readFile(path.join(root, DUMP_REL), "utf8");
+      return parseDump(contents);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return cloneState(EMPTY_STATE);
+      }
+      throw new SyncError("Failed to read the thought dump.", [toError(error)]);
+    }
   }
 
   public syncDump(state: DumpState): Promise<void> {
@@ -72,10 +113,16 @@ export class SyncEngine {
   private async writeDump(state: DumpState): Promise<void> {
     const root = this.resolveRoot();
     await this.ensureProjectStore();
+    this.writing = true;
     try {
       await atomicWrite(path.join(root, DUMP_REL), renderDump(state));
     } catch (error) {
       throw new SyncError("Failed to write the thought dump.", [toError(error)]);
+    } finally {
+      // Let the filesystem watcher settle before accepting external reloads.
+      setTimeout(() => {
+        this.writing = false;
+      }, 150);
     }
   }
 }
@@ -110,48 +157,130 @@ export function cloneState(state: DumpState): DumpState {
   };
 }
 
-export function isDumpState(value: unknown): value is DumpState {
-  if (typeof value !== "object" || value === null) {
-    return false;
+export function parseDump(contents: string): DumpState {
+  const inbox: InboxItem[] = [];
+  const seen = new Set<string>();
+  const now = new Date().toISOString();
+  const footerMatch = FOOTER_RE.exec(contents);
+  const updatedAt = footerMatch?.[1] && !Number.isNaN(Date.parse(footerMatch[1]))
+    ? footerMatch[1]
+    : now;
+
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const match = CHECKBOX_RE.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const done = match[1]!.toLowerCase() === "x";
+    const text = sanitizeUserText(stripIdMarker(match[2] ?? ""));
+    if (text.length === 0) {
+      continue;
+    }
+
+    let id = match[3]?.trim() || "";
+    if (!id || seen.has(id)) {
+      id = stableIdFor(text, done, inbox.length);
+    }
+    seen.add(id);
+
+    inbox.push({
+      id,
+      text,
+      done,
+      createdAt: updatedAt,
+    });
+
+    if (inbox.length >= MAX_INBOX_ITEMS) {
+      break;
+    }
   }
 
-  const candidate = value as Partial<DumpState>;
-  if (!Array.isArray(candidate.inbox)) {
-    return false;
-  }
+  return { inbox, updatedAt };
+}
 
-  return candidate.inbox.every(
-    (item) =>
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as InboxItem).id === "string" &&
-      typeof (item as InboxItem).text === "string" &&
-      typeof (item as InboxItem).done === "boolean" &&
-      typeof (item as InboxItem).createdAt === "string",
-  );
+function stripIdMarker(text: string): string {
+  return text.replace(/\s+<!--id:[^>]+-->\s*$/, "").trim();
+}
+
+function stableIdFor(text: string, done: boolean, index: number): string {
+  const digest = createHash("sha1")
+    .update(`${done ? "1" : "0"}\n${text}\n${index}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `t_${digest}`;
 }
 
 function renderDump(state: DumpState): string {
-  return withFrontmatter(
-    "Thought dump — parked ideas from the human. Do not chase these unless asked.",
-    [
-      "# Scratchpad",
-      "",
-      "The human parks stray thoughts here while working.",
-      "",
-      "Do not switch to dump items unless asked.",
-      "",
-      renderInboxMarkdown(state.inbox),
-      "",
-      renderFooter(state.updatedAt),
-    ],
-  );
+  return [
+    "# Scratchpad",
+    "",
+    "Parked thoughts for this project. Personal dump — not the current task.",
+    "",
+    renderInboxMarkdown(state.inbox),
+    "",
+    renderFooter(state.updatedAt),
+    "",
+  ].join("\n");
 }
 
-function withFrontmatter(description: string, body: string[]): string {
-  return ["---", `description: ${description}`, "alwaysApply: true", "---", "", ...body, ""].join(
-    "\n",
-  );
+function renderRule(): string {
+  return [
+    "---",
+    "description: Parked thoughts live in .cursor/scratchpad.md. Do not chase them unless asked.",
+    "alwaysApply: true",
+    "---",
+    "",
+    "# Scratchpad",
+    "",
+    "The human parks stray thoughts in `.cursor/scratchpad.md` while working.",
+    "",
+    "- That file is the source of truth for the dump.",
+    "- Those items are **not** the current task.",
+    "- Do **not** switch to dump items unless the human asks.",
+    "- Stay on the work in progress. Capture is handled by the Scratchpad extension sidebar.",
+    "- When asked to organize, triage, clean up, or prioritize the dump, use the `organize-scratchpad` skill.",
+    "",
+  ].join("\n");
+}
+
+function renderOrganizeSkill(): string {
+  return [
+    "---",
+    "name: organize-scratchpad",
+    "description: >-",
+    "  Triages and rewrites the project thought dump at .cursor/scratchpad.md.",
+    "  Use when the user asks to organize, triage, clean up, prioritize, cluster,",
+    "  or make sense of scratchpad / parked thoughts / the dump.",
+    "---",
+    "",
+    "# Organize Scratchpad",
+    "",
+    "## When to use",
+    "",
+    "Only when the human asks to organize or triage parked thoughts. Do not run this unprompted mid-task.",
+    "",
+    "## Instructions",
+    "",
+    "1. Read `.cursor/scratchpad.md` — it is the source of truth.",
+    "2. Keep every open item that still matters. Drop or mark done only what is clearly obsolete or already finished.",
+    "3. Rewrite the file cleanly:",
+    "   - Keep the `# Scratchpad` title and a one-line purpose blurb.",
+    "   - Use `### Open` and `### Done` sections.",
+    "   - Items as `- [ ]` / `- [x]` checkbox lines.",
+    "   - Preserve trailing `<!--id:...-->` markers on lines that already have them.",
+    "   - Optionally group open items under short subheadings (e.g. `#### Later`, `#### Bugs`) if that helps.",
+    "4. Do not invent new work. Do not expand parked thoughts into a new project plan unless asked.",
+    "5. After rewriting, briefly tell the human what you changed (counts moved, removed, or grouped).",
+    "",
+    "## Examples",
+    "",
+    "- \"organize my scratchpad\"",
+    "- \"triage the dump\"",
+    "- \"clean up parked thoughts\"",
+    "",
+  ].join("\n");
 }
 
 function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
@@ -177,7 +306,9 @@ function renderInboxMarkdown(inbox: readonly InboxItem[]): string {
 }
 
 function toCheckboxLine(item: InboxItem): string {
-  return `- [${item.done ? "x" : " "}] ${item.text.replace(/\n+/g, " ").trim()}`;
+  const mark = item.done ? "x" : " ";
+  const text = item.text.replace(/\n+/g, " ").trim();
+  return `- [${mark}] ${text} <!--id:${item.id}-->`;
 }
 
 function renderFooter(updatedAt: string): string {
@@ -220,7 +351,8 @@ async function ensureLocalGitExclude(root: string): Promise<void> {
       .filter((line) => line.length > 0 && !line.startsWith("#")),
   );
 
-  if (present.has(DUMP_REL)) {
+  const missing = EXCLUDE_MARKERS.filter((line) => !present.has(line));
+  if (missing.length === 0) {
     return;
   }
 
@@ -231,7 +363,7 @@ async function ensureLocalGitExclude(root: string): Promise<void> {
   if (!next.includes("# scratchpad")) {
     next += "\n# scratchpad (local only, not committed)\n";
   }
-  next += `${DUMP_REL}\n`;
+  next += `${missing.join("\n")}\n`;
   await atomicWrite(excludePath, next);
 }
 
