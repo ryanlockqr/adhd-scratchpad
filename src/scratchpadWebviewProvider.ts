@@ -2,16 +2,14 @@ import * as vscode from "vscode";
 import {
   cloneState,
   createInboxItem,
+  DUMP_REL,
   DumpState,
   EMPTY_STATE,
-  isDumpState,
   MAX_INBOX_ITEMS,
   sanitizeUserText,
   SyncEngine,
   SyncError,
 } from "./syncEngine";
-
-const STATE_KEY = "scratchpad.state";
 
 type WebviewToExtension =
   | { type: "ready" }
@@ -19,28 +17,23 @@ type WebviewToExtension =
   | { type: "toggleInbox"; id: string }
   | { type: "removeInbox"; id: string };
 
-export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
+export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = "scratchpad.sidebar";
 
   private view: vscode.WebviewView | undefined;
   private state: DumpState = cloneState(EMPTY_STATE);
   private syncing = false;
+  private dumpWatcher: vscode.FileSystemWatcher | undefined;
+  private reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly engine: SyncEngine,
-    private readonly memento: vscode.Memento,
   ) {}
 
   public async initialize(): Promise<void> {
-    const stored = this.memento.get<unknown>(STATE_KEY);
-    if (isDumpState(stored)) {
-      this.state = cloneState(stored);
-    }
-
-    if (this.state.inbox.length > 0) {
-      await this.persistAndSync();
-    }
+    this.watchDump();
+    await this.reloadFromDisk();
   }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -66,6 +59,8 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   public async dumpThought(raw: string): Promise<void> {
+    await this.reloadFromDisk();
+
     const text = sanitizeUserText(raw);
     if (text.length === 0) {
       return;
@@ -79,14 +74,12 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     const item = createInboxItem(text);
-
     this.state = {
       inbox: [...this.state.inbox, item],
       updatedAt: new Date().toISOString(),
     };
 
-    await this.persistAndSync();
-    this.postState();
+    await this.writeToDisk();
   }
 
   public async clearDump(): Promise<void> {
@@ -94,8 +87,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
       inbox: [],
       updatedAt: new Date().toISOString(),
     };
-    await this.persistAndSync();
-    this.postState();
+    await this.writeToDisk();
   }
 
   public reveal(): void {
@@ -103,8 +95,60 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   public async resync(): Promise<void> {
-    if (this.state.inbox.length > 0) {
-      await this.persistAndSync();
+    this.watchDump();
+    await this.reloadFromDisk();
+  }
+
+  public dispose(): void {
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = undefined;
+    }
+    this.dumpWatcher?.dispose();
+    this.dumpWatcher = undefined;
+  }
+
+  private watchDump(): void {
+    this.dumpWatcher?.dispose();
+    this.dumpWatcher = undefined;
+
+    const root = this.engine.getRootSafe();
+    if (!root) {
+      return;
+    }
+
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, DUMP_REL),
+    );
+    const scheduleReload = (): void => {
+      if (this.engine.isWritingDump()) {
+        return;
+      }
+      if (this.reloadTimer) {
+        clearTimeout(this.reloadTimer);
+      }
+      this.reloadTimer = setTimeout(() => {
+        void this.reloadFromDisk();
+      }, 100);
+    };
+    watcher.onDidChange(scheduleReload);
+    watcher.onDidCreate(scheduleReload);
+    watcher.onDidDelete(scheduleReload);
+    this.dumpWatcher = watcher;
+  }
+
+  private async reloadFromDisk(): Promise<void> {
+    if (!this.engine.getRootSafe()) {
+      this.state = cloneState(EMPTY_STATE);
+      this.postState();
+      return;
+    }
+
+    try {
+      this.state = await this.engine.readDump();
+      this.postState();
+    } catch (error) {
+      this.showError(error);
     }
   }
 
@@ -130,6 +174,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private async toggleInbox(id: string): Promise<void> {
+    await this.reloadFromDisk();
     const inbox = this.state.inbox.map((item) =>
       item.id === id ? { ...item, done: !item.done } : item,
     );
@@ -137,27 +182,25 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
       inbox,
       updatedAt: new Date().toISOString(),
     };
-    await this.persistAndSync();
-    this.postState();
+    await this.writeToDisk();
   }
 
   private async removeInbox(id: string): Promise<void> {
+    await this.reloadFromDisk();
     this.state = {
       inbox: this.state.inbox.filter((item) => item.id !== id),
       updatedAt: new Date().toISOString(),
     };
-    await this.persistAndSync();
-    this.postState();
+    await this.writeToDisk();
   }
 
-  private async persistAndSync(): Promise<void> {
-    await this.memento.update(STATE_KEY, this.state);
-
+  private async writeToDisk(): Promise<void> {
     this.syncing = true;
     this.postState();
 
     try {
       await this.engine.syncDump(this.state);
+      this.state = await this.engine.readDump();
     } catch (error) {
       this.showError(error);
     } finally {
@@ -387,7 +430,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
         autocomplete="off"
         spellcheck="true"
       />
-      <p class="hint">Dump as you work. Enter captures it as <code>- [ ]</code>.</p>
+      <p class="hint">Dump as you work. Enter parks it. Ask the agent to organize when you want.</p>
       <div class="inbox" id="inbox"></div>
     </section>
   </div>
@@ -398,11 +441,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
     const inboxEl = document.getElementById("inbox");
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("workspace-banner");
-
-    const previous = vscode.getState();
-    if (previous && previous.state) {
-      render(previous);
-    }
 
     vscode.postMessage({ type: "ready" });
 
@@ -451,7 +489,6 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
       if (!data || data.type !== "state") {
         return;
       }
-      vscode.setState(data);
       render(data);
     });
 
@@ -460,7 +497,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider {
       bannerEl.hidden = Boolean(payload.hasWorkspace);
 
       statusEl.dataset.busy = payload.syncing ? "true" : "false";
-      statusEl.textContent = payload.syncing ? "Syncing…" : "Synced";
+      statusEl.textContent = payload.syncing ? "Saving…" : "Saved";
 
       if (!state.inbox || state.inbox.length === 0) {
         inboxEl.innerHTML = '<div class="empty">Nothing dumped. Park a thought to get it out of your head.</div>';

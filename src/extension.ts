@@ -4,11 +4,7 @@ import { ScratchpadWebviewProvider } from "./scratchpadWebviewProvider";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const engine = new SyncEngine(() => resolveWorkspaceRoot());
-  const provider = new ScratchpadWebviewProvider(
-    context.extensionUri,
-    engine,
-    context.workspaceState,
-  );
+  const provider = new ScratchpadWebviewProvider(context.extensionUri, engine);
 
   await bootstrapProject(engine);
 
@@ -19,6 +15,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   context.subscriptions.push(
+    provider,
     vscode.window.registerWebviewViewProvider(ScratchpadWebviewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),

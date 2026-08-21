@@ -1,7 +1,7 @@
 {
   "name": "scratchpad",
-  "displayName": "Scratchpad",
-  "description": "Dump stray thoughts as you work in Cursor. Per-project rules git ignores.",
+  "displayName": "Scratchpad for Cursor",
+  "description": "Cursor thought dump: park ideas in the sidebar, keep the agent on task, organize the dump when you ask.",
   "version": "0.1.0",
   "publisher": "ryanlockqr",
   "license": "MIT",
@@ -12,12 +12,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryanlockqr/adhd-scratchpad.git"
+    "url": "https://github.com/ryanlockqr/cursor-scratchpad.git"
   },
   "bugs": {
-    "url": "https://github.com/ryanlockqr/adhd-scratchpad/issues"
+    "url": "https://github.com/ryanlockqr/cursor-scratchpad/issues"
   },
-  "homepage": "https://github.com/ryanlockqr/adhd-scratchpad#readme",
+  "homepage": "https://github.com/ryanlockqr/cursor-scratchpad#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -25,11 +25,14 @@
     "Other"
   ],
   "keywords": [
+    "cursor",
     "scratchpad",
     "inbox",
-    "cursor",
+    "agent",
     "rules",
-    "capture"
+    "skills",
+    "capture",
+    "adhd"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -71,16 +74,24 @@
         "title": "Focus Sidebar",
         "category": "Scratchpad"
       }
-    ]
+    ],
+    "configurationDefaults": {
+      "files.exclude": {
+        "**/.cursor/scratchpad.md": true
+      },
+      "search.exclude": {
+        "**/.cursor/scratchpad.md": true
+      }
+    }
   },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Scratchpad writes markdown rule files into the workspace."
+      "description": "Writes Cursor dump, rule, and skill files into the project."
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "Scratchpad requires a local filesystem to sync agent rule files."
+      "description": "Needs a local project folder so Cursor can read the dump, rule, and skill."
     }
   },
   "scripts": {
