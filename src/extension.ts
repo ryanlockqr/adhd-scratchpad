@@ -30,7 +30,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("scratchpad.quickDump", async () => {
       const text = await vscode.window.showInputBox({
-        title: "Scratchpad",
+        title: "Cursor Scratchpad",
         prompt: "Park a thought.",
         placeHolder: "that other idea I should not chase right now",
         ignoreFocusOut: true,

@@ -1,8 +1,8 @@
 {
   "name": "scratchpad",
-  "displayName": "Scratchpad for Cursor",
-  "description": "Cursor thought dump: park ideas in the sidebar, keep the agent on task, organize the dump when you ask.",
-  "version": "0.1.0",
+  "displayName": "Cursor Scratchpad",
+  "description": "Park stray thoughts while you code in Cursor. Agent stays on task; organize the dump when you ask.",
+  "version": "0.1.1",
   "publisher": "ryanlockqr",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -43,7 +43,7 @@
       "activitybar": [
         {
           "id": "scratchpad",
-          "title": "Scratchpad",
+          "title": "Cursor Scratchpad",
           "icon": "media/icon.svg"
         }
       ]
@@ -53,8 +53,8 @@
         {
           "type": "webview",
           "id": "scratchpad.sidebar",
-          "name": "Scratchpad",
-          "contextualTitle": "Scratchpad"
+          "name": "Cursor Scratchpad",
+          "contextualTitle": "Cursor Scratchpad"
         }
       ]
     },
@@ -62,17 +62,17 @@
       {
         "command": "scratchpad.quickDump",
         "title": "Quick Dump Thought",
-        "category": "Scratchpad"
+        "category": "Cursor Scratchpad"
       },
       {
         "command": "scratchpad.clearDump",
         "title": "Clear Dump",
-        "category": "Scratchpad"
+        "category": "Cursor Scratchpad"
       },
       {
         "command": "scratchpad.focusSidebar",
         "title": "Focus Sidebar",
-        "category": "Scratchpad"
+        "category": "Cursor Scratchpad"
       }
     ],
     "configurationDefaults": {

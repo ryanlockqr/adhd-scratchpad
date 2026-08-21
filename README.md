@@ -1,4 +1,4 @@
-# Scratchpad
+# Cursor Scratchpad
 
 [![Open VSX](https://img.shields.io/open-vsx/v/ryanlockqr/scratchpad)](https://open-vsx.org/extension/ryanlockqr/scratchpad)
 [![CI](https://github.com/ryanlockqr/cursor-scratchpad/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanlockqr/cursor-scratchpad/actions/workflows/ci.yml)
@@ -22,7 +22,7 @@ Per project. The dump is personal and stays off git. The small rule and organize
 Cursor pulls extensions from Open VSX.
 
 1. Open the Extensions view.
-2. Search **Scratchpad**.
+2. Search **Cursor Scratchpad**.
 3. Install, then open a project folder.
 
 [open-vsx.org/extension/ryanlockqr/scratchpad](https://open-vsx.org/extension/ryanlockqr/scratchpad)

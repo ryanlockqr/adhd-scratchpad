@@ -241,7 +241,7 @@ export class ScratchpadWebviewProvider implements vscode.WebviewViewProvider, vs
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scratchpad</title>
+  <title>Cursor Scratchpad</title>
   <style>
     :root {
       color-scheme: light dark;
